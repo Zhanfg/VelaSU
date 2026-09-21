@@ -2,89 +2,62 @@
 
 Target: Xiaomi Smart Band 10 Pro CN.
 
-This test validates only the runtime bootstrap chain. It does not enable boot persistence and does not modify firmware partitions.
+This test validates the runtime bootstrap chain. It does not enable boot persistence and does not modify firmware partitions.
 
 ## Safety boundary
 
-The current probe:
-- copies two tiny ELF candidates to `/data`;
+The current Bootstrap:
+- copies tiny ELF payloads to `/data`;
 - attempts `insmod`;
 - verifies presence with `lsmod`;
-- reads a small set of existing system capability indicators;
-- writes a JSON report to the VelaSU Manager Quick App sandbox.
+- reads a small set of existing capability indicators;
+- writes the probe result to the Manager sandbox;
+- on **exact firmware 3.101.043 only**, loads the first VelaCall Core.
 
-It does **not** modify the bootloader, OTA/recovery, early boot, Bluetooth initialization, or system firmware.
+The 3.101.043 Core installs a low-frequency LVGL timer and handles only:
 
-If the runtime module misbehaves, rebooting the band is expected to clear it.
+`PING <nonce>` -> `PONG <nonce> <heartbeat>`
 
-## Artifacts
+It does **not** modify the bootloader, OTA/recovery, early boot, Bluetooth initialization, or firmware partitions.
 
-Use artifacts generated from the same commit:
-- `VelaSU-Manager-RPK-<sha>`
-- `VelaSU-Lua-Watchface-<sha>`
-
-The watchface artifact also contains the two ELF candidates for inspection.
+The Core is resident-until-reboot in this phase. Do **not** run `rmmod velasu_core`; reboot is the supported teardown path.
 
 ## Test sequence
 
 1. Install the VelaSU Manager RPK.
 2. Open VelaSU Manager once.
-   - Expected: `Bridge = READY`.
-   - The app creates `internal://files/velasu_manager.marker`.
 3. Install and activate the VelaSU Bootstrap Lua watchface.
 4. Tap **ACTIVATE** once.
-5. Wait for one of these results:
-   - `Native probe ONLINE / ET_DYN`
-   - `Native probe ONLINE / ET_REL`
-   - `Native load failed`
-6. Return to VelaSU Manager.
-7. Record:
-   - firmware string;
-   - Native Core state;
-   - ELF format selected;
-   - Bridge state;
-   - UnionFS result;
-   - uORB result;
-   - any error text.
+5. Return to Manager.
+6. Record the displayed firmware and loader format.
+7. If firmware is exactly `3.101.043`, wait for:
+   - `VELACALL = ONLINE`
+   - an increasing heartbeat value.
 8. Switch to an unrelated ordinary watchface.
-9. Open VelaSU Manager again.
-   - This version only proves that the previously produced report remains accessible.
-   - It does **not yet** prove a live Manager-to-native bridge after the Bootstrap watchface exits.
-10. Reboot the band.
-11. Confirm stock boot and Bluetooth pairing still work normally.
+9. Open Manager again.
+10. Confirm the heartbeat continues increasing.
+11. Delete the Bootstrap watchface if your installer supports doing so safely.
+12. Open Manager again and confirm the heartbeat still increases.
+13. Reboot the band.
+14. Confirm stock boot and Bluetooth pairing remain normal.
+15. Open Manager. The old probe report may remain, but live PING/PONG must become OFFLINE because the runtime Core was cleared.
 
 ## Pass criteria
 
-### P0: packaging
-Manager RPK and Bootstrap watchface install and open normally.
-
-### P1: sandbox bridge
-Bootstrap locates the Manager marker and writes `velasu_probe.json`.
-
-### P2: native loader
-At least one ELF variant loads and is visible in `lsmod`.
-
-### P3: read-only capability probe
-Manager receives and renders the JSON capability report.
-
-### P4: reboot recovery
-After reboot, the band returns to normal stock behavior without requiring VelaSU.
+- P0: Manager and Bootstrap install/open.
+- P1: Bootstrap finds Manager sandbox and returns probe JSON.
+- P2: at least one safe loader probe ELF is accepted.
+- P3: capability report renders in Manager.
+- P4: on supported firmware, live PING/PONG reaches ONLINE.
+- P5: PING/PONG remains live after switching/deleting Bootstrap.
+- P6: reboot clears VelaSU runtime and restores stock-only operation.
 
 ## Stop conditions
 
-Stop testing and reboot immediately if:
-- UI repeatedly restarts;
-- touch input becomes persistently unresponsive;
+Reboot immediately if:
+- the UI repeatedly restarts;
+- touch becomes persistently unresponsive;
 - Bluetooth disconnects together with repeated system restarts;
-- the bootstrap loops its activation without user input.
+- ACTIVATE causes a reproducible reboot.
 
-Do not attempt repeated `insmod` after a reproducible reboot until the failure is diagnosed.
-
-## Next milestone
-
-After P0-P4 pass, the next implementation is a live native VelaCall transport. That transport must demonstrate:
-- Manager request -> native module response;
-- continued responses after switching away from/deleting the Bootstrap watchface;
-- clean disappearance after reboot.
-
-Only after that milestone should module policy, Bluetooth providers, or runtime hooks be enabled.
+Do not repeat the failing activation until its firmware/profile result is reviewed.

@@ -1,21 +1,25 @@
 <template>
   <div class="page">
     <text class="brand">VelaSU</text>
-    <text class="subtitle">Runtime bootstrap</text>
+    <text class="subtitle">Runtime bridge</text>
 
     <div class="card">
-      <text class="label">NATIVE CORE</text>
-      <text class="value">{{ coreState }}</text>
-      <text class="small">{{ nativeFormat }}</text>
+      <text class="label">VELACALL</text>
+      <text class="value">{{ liveState }}</text>
+      <text class="small">{{ heartbeatText }}</text>
     </div>
 
+    <div class="row">
+      <text class="key">Loader</text>
+      <text class="val">{{ loaderState }}</text>
+    </div>
+    <div class="row">
+      <text class="key">ELF</text>
+      <text class="val">{{ nativeFormat }}</text>
+    </div>
     <div class="row">
       <text class="key">Firmware</text>
       <text class="val">{{ firmware }}</text>
-    </div>
-    <div class="row">
-      <text class="key">Bridge</text>
-      <text class="val">{{ bridgeState }}</text>
     </div>
     <div class="row">
       <text class="key">UnionFS</text>
@@ -36,7 +40,7 @@
     flex-direction: column;
     align-items: center;
     background-color: #080c12;
-    padding-top: 34px;
+    padding-top: 28px;
     padding-left: 20px;
     padding-right: 20px;
   }
@@ -49,11 +53,11 @@
     color: #8391a5;
     font-size: 18px;
     margin-top: 2px;
-    margin-bottom: 20px;
+    margin-bottom: 16px;
   }
   .card {
     width: 296px;
-    height: 98px;
+    height: 92px;
     border-width: 2px;
     border-color: #263140;
     border-radius: 18px;
@@ -61,7 +65,7 @@
     justify-content: center;
     align-items: center;
     background-color: #0d141e;
-    margin-bottom: 16px;
+    margin-bottom: 12px;
   }
   .label {
     color: #8391a5;
@@ -69,35 +73,35 @@
   }
   .value {
     color: #ffffff;
-    font-size: 23px;
-    margin-top: 4px;
+    font-size: 22px;
+    margin-top: 3px;
   }
   .small {
     color: #5cffb9;
-    font-size: 14px;
-    margin-top: 2px;
+    font-size: 13px;
+    margin-top: 1px;
   }
   .row {
     width: 292px;
-    height: 34px;
+    height: 30px;
     flex-direction: row;
     justify-content: space-between;
     align-items: center;
   }
   .key {
     color: #8391a5;
-    font-size: 16px;
+    font-size: 15px;
   }
   .val {
     color: #e8eef5;
-    font-size: 16px;
+    font-size: 15px;
   }
   .hint {
     width: 292px;
     color: #607086;
-    font-size: 15px;
+    font-size: 14px;
     text-align: center;
-    margin-top: 15px;
+    margin-top: 10px;
   }
 </style>
 
@@ -107,37 +111,47 @@
   const BASE = 'internal://files/'
   const MARKER = BASE + 'velasu_manager.marker'
   const RESULT = BASE + 'velasu_probe.json'
+  const REQUEST = BASE + 'velasu_call_in.txt'
+  const RESPONSE = BASE + 'velasu_call_out.txt'
 
   export default {
     private: {
-      coreState: 'NOT ACTIVATED',
-      nativeFormat: '',
+      liveState: 'NOT ACTIVATED',
+      heartbeatText: '',
+      loaderState: '-',
+      nativeFormat: '-',
       firmware: '-',
-      bridgeState: 'PREPARED',
       unionfsState: '-',
       uorbState: '-',
-      hint: 'Open the VelaSU Bootstrap watchface and tap ACTIVATE.'
+      hint: 'Open the Bootstrap watchface and tap ACTIVATE.',
+      liveExpected: false,
+      pingSeq: 0,
+      lastPongSeq: 0,
+      missedPings: 0
     },
 
     onInit() {
       this.prepareBridge()
       this.refreshProbe()
-      this._timer = setInterval(() => this.refreshProbe(), 1000)
+      this.pollPong()
+      this._probeTimer = setInterval(() => this.refreshProbe(), 1500)
+      this._pingTimer = setInterval(() => this.sendPing(), 2000)
+      this._pongTimer = setInterval(() => this.pollPong(), 500)
     },
 
     onDestroy() {
-      if (this._timer) clearInterval(this._timer)
+      if (this._probeTimer) clearInterval(this._probeTimer)
+      if (this._pingTimer) clearInterval(this._pingTimer)
+      if (this._pongTimer) clearInterval(this._pongTimer)
     },
 
     prepareBridge() {
       file.writeText({
         uri: MARKER,
         text: 'velasu-manager-v1',
-        success: () => {
-          this.bridgeState = 'READY'
-        },
+        success: () => {},
         fail: () => {
-          this.bridgeState = 'ERROR'
+          this.liveState = 'SANDBOX ERROR'
         }
       })
     },
@@ -149,18 +163,71 @@
           try {
             const r = JSON.parse((data && data.text) || '{}')
             this.firmware = r.firmware || 'unknown'
-            this.bridgeState = r.manager_bridge ? 'ONLINE' : 'ERROR'
-            this.coreState = r.native_loaded ? 'ONLINE' : 'LOAD FAILED'
-            this.nativeFormat = r.native_format || ''
+            this.loaderState = r.native_loaded ? 'OK' : 'FAILED'
+            this.nativeFormat = r.native_format || '-'
             const c = r.capabilities || {}
             this.unionfsState = c['fs.unionfs'] ? 'YES' : 'NO'
             this.uorbState = c['sensor.uorb'] ? 'YES' : 'NO'
-            this.hint = r.native_loaded
-              ? 'Runtime native loading verified. Reboot still clears the module.'
-              : (r.error || 'Probe result received.')
+            this.liveExpected = !!r.live_bridge
+
+            if (!r.live_bridge) {
+              this.liveState = r.native_loaded ? 'UNSUPPORTED' : 'OFFLINE'
+              this.heartbeatText = ''
+              this.hint = r.core_target || r.error || 'Live bridge not started.'
+            } else if (this.lastPongSeq === 0) {
+              this.liveState = 'WAITING PONG'
+              this.hint = 'Waiting for the native runtime response.'
+            }
           } catch (e) {
             this.hint = 'Probe result parse error.'
           }
+        },
+        fail: () => {}
+      })
+    },
+
+    sendPing() {
+      if (!this.liveExpected) return
+
+      this.pingSeq += 1
+      const seq = this.pingSeq
+      this.missedPings += 1
+      if (this.missedPings >= 3) {
+        this.liveState = 'OFFLINE'
+        this.heartbeatText = ''
+        this.hint = 'No live native response. Re-activate or reboot to return to stock.'
+      }
+
+      file.writeText({
+        uri: REQUEST,
+        text: 'PING ' + seq + '\n',
+        success: () => {},
+        fail: () => {
+          this.liveState = 'IPC WRITE ERROR'
+        }
+      })
+    },
+
+    pollPong() {
+      if (!this.liveExpected) return
+
+      file.readText({
+        uri: RESPONSE,
+        success: (data) => {
+          const text = ((data && data.text) || '').replace(/\r/g, '').replace(/\n/g, '')
+          const parts = text.split(' ')
+          if (parts.length < 3 || parts[0] !== 'PONG') return
+
+          const seq = parseInt(parts[1])
+          const heartbeat = parseInt(parts[2])
+          if (isNaN(seq) || isNaN(heartbeat)) return
+          if (seq < this.lastPongSeq) return
+
+          this.lastPongSeq = seq
+          this.missedPings = 0
+          this.liveState = 'ONLINE'
+          this.heartbeatText = 'heartbeat ' + heartbeat
+          this.hint = 'Live native VelaCall is responding.'
         },
         fail: () => {}
       })
