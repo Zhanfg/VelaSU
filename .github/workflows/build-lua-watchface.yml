@@ -1,0 +1,105 @@
+name: Build Lua Watchface
+
+on:
+  workflow_dispatch:
+    inputs:
+      watchface_id:
+        description: Numeric Int32 watchface ID
+        required: true
+        default: "19091738"
+        type: string
+      face_name:
+        description: Output .face filename
+        required: true
+        default: "VelaSU-Bootstrap.face"
+        type: string
+  push:
+    branches:
+      - main
+      - dev/**
+    paths:
+      - "bootstrap/watchface/**"
+      - ".github/workflows/build-lua-watchface.yml"
+  pull_request:
+    paths:
+      - "bootstrap/watchface/**"
+      - ".github/workflows/build-lua-watchface.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: lua-watchface-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  LUADEV_REF: 0eb8346ce0c9c11f2316c6b154ed91fd4a0d419d
+  FACE_ID: ${{ github.event_name == 'workflow_dispatch' && inputs.watchface_id || '19091738' }}
+  FACE_NAME: ${{ github.event_name == 'workflow_dispatch' && inputs.face_name || 'VelaSU-Bootstrap.face' }}
+
+jobs:
+  build:
+    name: Build FACE
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout VelaSU
+        uses: actions/checkout@v4
+
+      - name: Checkout pinned Lua watchface toolchain
+        uses: actions/checkout@v4
+        with:
+          repository: FangAiden/LuaDevTemplate
+          ref: ${{ env.LUADEV_REF }}
+          path: .toolchain/LuaDevTemplate
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install watchface tooling dependencies
+        shell: pwsh
+        run: python -m pip install -r .toolchain/LuaDevTemplate/requirements.txt
+
+      - name: Overlay VelaSU bootstrap sources
+        shell: pwsh
+        run: |
+          $dst = ".toolchain\LuaDevTemplate\watchface\fprj\app"
+          if (Test-Path $dst) {
+            Remove-Item -Recurse -Force "$dst\*"
+          } else {
+            New-Item -ItemType Directory -Path $dst -Force | Out-Null
+          }
+          Copy-Item -Recurse -Force "bootstrap\watchface\app\*" $dst
+
+      - name: Build watchface
+        shell: pwsh
+        run: |
+          $id = [Int64]::Parse($env:FACE_ID)
+          if ($id -lt 1 -or $id -gt [Int32]::MaxValue) {
+            throw "FACE_ID must be within 1..2147483647"
+          }
+          if (-not $env:FACE_NAME.EndsWith(".face")) {
+            throw "FACE_NAME must end with .face"
+          }
+          & ".\.toolchain\LuaDevTemplate\scripts\build_face.ps1" -FaceName $env:FACE_NAME -FaceId $env:FACE_ID
+
+      - name: Collect artifacts
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path "artifacts\watchface" -Force | Out-Null
+          Copy-Item ".toolchain\LuaDevTemplate\bin\$env:FACE_NAME" "artifacts\watchface\$env:FACE_NAME" -Force
+          $resource = ".toolchain\LuaDevTemplate\watchface\data\resource.bin"
+          if (Test-Path $resource) {
+            Copy-Item $resource "artifacts\watchface\resource.bin" -Force
+          }
+          Get-ChildItem "artifacts\watchface" | Format-Table Name,Length
+
+      - name: Upload Lua watchface artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: VelaSU-Lua-Watchface-${{ github.sha }}
+          path: artifacts/watchface/*
+          if-no-files-found: error
+          retention-days: 30

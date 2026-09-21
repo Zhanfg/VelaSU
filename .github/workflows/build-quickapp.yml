@@ -1,0 +1,99 @@
+name: Build Vela Quick App
+
+on:
+  workflow_dispatch:
+    inputs:
+      build_mode:
+        description: Build mode
+        required: true
+        default: debug
+        type: choice
+        options:
+          - debug
+          - release
+  push:
+    branches:
+      - main
+      - dev/**
+    paths:
+      - "manager/quickapp/**"
+      - ".github/workflows/build-quickapp.yml"
+  pull_request:
+    paths:
+      - "manager/quickapp/**"
+      - ".github/workflows/build-quickapp.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: quickapp-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build RPK
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: manager/quickapp
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: Show AIoT toolkit version
+        run: npx aiot -v
+
+      - name: Build debug RPK
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.build_mode == 'debug' }}
+        run: npm run build
+
+      - name: Prepare release signing material
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.build_mode == 'release' }}
+        shell: bash
+        env:
+          VELASU_RELEASE_PRIVATE_KEY: ${{ secrets.VELASU_RELEASE_PRIVATE_KEY }}
+          VELASU_RELEASE_CERTIFICATE: ${{ secrets.VELASU_RELEASE_CERTIFICATE }}
+        run: |
+          set -euo pipefail
+          if [ -z "${VELASU_RELEASE_PRIVATE_KEY}" ] || [ -z "${VELASU_RELEASE_CERTIFICATE}" ]; then
+            echo "::error::Release build requires VELASU_RELEASE_PRIVATE_KEY and VELASU_RELEASE_CERTIFICATE repository secrets."
+            exit 1
+          fi
+          mkdir -p sign/release
+          printf '%s\n' "${VELASU_RELEASE_PRIVATE_KEY}" > sign/release/private.pem
+          printf '%s\n' "${VELASU_RELEASE_CERTIFICATE}" > sign/release/certificate.pem
+          chmod 600 sign/release/private.pem
+
+      - name: Build release RPK
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.build_mode == 'release' }}
+        run: npm run release
+
+      - name: Verify RPK output
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          files=(dist/*.rpk)
+          if [ ${#files[@]} -eq 0 ]; then
+            echo "::error::No .rpk was produced under manager/quickapp/dist."
+            exit 1
+          fi
+          ls -lh dist/*.rpk
+
+      - name: Upload Quick App artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: VelaSU-Manager-RPK-${{ github.sha }}
+          path: manager/quickapp/dist/*.rpk
+          if-no-files-found: error
+          retention-days: 30

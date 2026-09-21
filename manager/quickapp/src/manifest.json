@@ -1,0 +1,26 @@
+{
+  "package": "io.github.zhanfg.velasu.manager",
+  "name": "VelaSU",
+  "versionName": "0.0.1",
+  "versionCode": 1,
+  "icon": "/common/logo.png",
+  "minPlatformVersion": 1200,
+  "deviceTypeList": ["watch"],
+  "features": [],
+  "config": {
+    "logLevel": "debug",
+    "designWidth": 336,
+    "debug": true
+  },
+  "router": {
+    "entry": "pages/index",
+    "pages": {
+      "pages/index": {
+        "component": "index"
+      }
+    }
+  },
+  "display": {
+    "backgroundColor": "#080c12"
+  }
+}
