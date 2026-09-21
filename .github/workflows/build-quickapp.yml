@@ -27,7 +27,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: quickapp-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.event.pull_request.head.ref || github.ref_name }}
   cancel-in-progress: true
 
 jobs:
