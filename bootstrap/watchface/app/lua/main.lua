@@ -106,6 +106,10 @@ local function detect_firmware()
 end
 
 local function load_live_core(manager_dir, fw)
+  if not write_text(BRIDGE_CONFIG, manager_dir) then
+    return false, "failed to write bridge config"
+  end
+
   if module_loaded(CORE_MODULE) then
     return true, "already loaded"
   end
@@ -117,10 +121,6 @@ local function load_live_core(manager_dir, fw)
   local src = SCRIPT_PATH .. CORE_3101043
   if not file_exists(src) then
     return false, "core payload missing"
-  end
-
-  if not write_text(BRIDGE_CONFIG, manager_dir) then
-    return false, "failed to write bridge config"
   end
 
   if not shell_ok("cp '" .. src .. "' '" .. DST_CORE .. "'") then

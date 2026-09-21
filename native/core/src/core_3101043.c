@@ -164,7 +164,12 @@ static void bridge_tick(void *timer)
     if (!g_bridge_ready && !load_bridge_paths()) return;
 
     n = read_small(g_request_path, req, REQUEST_CAP);
-    if (n <= 0) return;
+    if (n < 0) {
+        /* Manager may have been reinstalled and received a new sandbox. */
+        g_bridge_ready = 0;
+        return;
+    }
+    if (n == 0) return;
 
     if (n == g_last_request_len && vequal_n(req, g_last_request, n)) return;
     if (!parse_ping(req, n, &nonce, &nonce_len)) return;
