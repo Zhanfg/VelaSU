@@ -47,13 +47,28 @@ jobs:
       - name: Checkout VelaSU
         uses: actions/checkout@v4
 
-      - name: Install ARM GNU toolchain
+      - name: Install minimal ARM GNU toolchain
         run: |
           sudo apt-get update
-          sudo apt-get install -y gcc-arm-none-eabi binutils-arm-none-eabi
+          sudo apt-get install -y --no-install-recommends gcc-arm-none-eabi binutils-arm-none-eabi
 
       - name: Build both module formats
         run: bash native/probe/build.sh
+
+      - name: Record ELF metadata
+        run: |
+          {
+            echo "## Native probe ELF metadata"
+            echo
+            echo '~~~text'
+            for f in build/native-probe/velasu_probe_*.elf; do
+              echo "== $(basename "$f") =="
+              arm-none-eabi-readelf -h "$f" | grep -E 'Type:|Machine:|Entry point'
+              arm-none-eabi-nm "$f" | grep ' module_initialize$' || true
+              echo
+            done
+            echo '~~~'
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload native probe payload
         uses: actions/upload-artifact@v4
