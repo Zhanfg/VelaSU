@@ -227,12 +227,12 @@ button:onevent(lvgl.EVENT.CLICKED, function()
 
   status:set({ text = "Loading native probe..." })
 
-  local loaded, info = try_probe(PROBE_DYN, DST_DYN, "ET_DYN")
+  local loaded, info = try_probe(PROBE_REL, DST_REL, "ET_REL")
   local format_name = loaded and info or ""
   local err = loaded and "" or tostring(info)
 
   if not loaded then
-    local ok2, info2 = try_probe(PROBE_REL, DST_REL, "ET_REL")
+    local ok2, info2 = try_probe(PROBE_DYN, DST_DYN, "ET_DYN")
     loaded = ok2
     if loaded then
       format_name = info2
