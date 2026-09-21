@@ -1,0 +1,167 @@
+name: Build Lua Watchface
+
+on:
+  workflow_dispatch:
+    inputs:
+      watchface_id:
+        description: Numeric Int32 watchface ID
+        required: true
+        default: "19091738"
+        type: string
+      face_name:
+        description: Output .face filename
+        required: true
+        default: "VelaSU-Bootstrap.face"
+        type: string
+  push:
+    branches:
+      - main
+      - dev/**
+    paths:
+      - "bootstrap/watchface/**"
+      - "native/probe/**"
+      - "native/core/**"
+      - "platform/miband10pro/**"
+      - ".github/workflows/build-lua-watchface.yml"
+  pull_request:
+    paths:
+      - "bootstrap/watchface/**"
+      - "native/probe/**"
+      - "native/core/**"
+      - "platform/miband10pro/**"
+      - ".github/workflows/build-lua-watchface.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.head.ref || github.ref_name }}
+  cancel-in-progress: true
+
+env:
+  LUADEV_REF: 0eb8346ce0c9c11f2316c6b154ed91fd4a0d419d
+  FACE_ID: ${{ github.event_name == 'workflow_dispatch' && inputs.watchface_id || '19091738' }}
+  FACE_NAME: ${{ github.event_name == 'workflow_dispatch' && inputs.face_name || 'VelaSU-Bootstrap.face' }}
+
+jobs:
+  native-payloads:
+    name: Build native payloads
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout VelaSU
+        uses: actions/checkout@v4
+
+      - name: Install minimal ARM GNU toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends gcc-arm-none-eabi binutils-arm-none-eabi
+
+      - name: Build loader probes
+        run: bash native/probe/build.sh
+
+      - name: Build 3.101.043 live core
+        run: bash native/core/build.sh
+
+      - name: Record ELF metadata
+        run: |
+          {
+            echo "## Native ELF metadata"
+            echo
+            echo '~~~text'
+            for f in build/native-probe/*.elf build/native-core/*.elf; do
+              echo "== $(basename "$f") =="
+              arm-none-eabi-readelf -h "$f" | grep -E 'Type:|Machine:|Entry point'
+              arm-none-eabi-nm "$f" | grep ' module_initialize$' || true
+              echo
+            done
+            echo '~~~'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload native payloads
+        uses: actions/upload-artifact@v4
+        with:
+          name: VelaSU-Native-Payloads-${{ github.sha }}
+          path: |
+            build/native-probe/velasu_probe_*.elf
+            build/native-core/velasu_core_*.elf
+          if-no-files-found: error
+          retention-days: 30
+
+  build:
+    name: Build FACE
+    needs: native-payloads
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout VelaSU
+        uses: actions/checkout@v4
+
+      - name: Download native payloads
+        uses: actions/download-artifact@v4
+        with:
+          name: VelaSU-Native-Payloads-${{ github.sha }}
+          path: artifacts/native
+
+      - name: Checkout pinned Lua watchface toolchain
+        uses: actions/checkout@v4
+        with:
+          repository: FangAiden/LuaDevTemplate
+          ref: ${{ env.LUADEV_REF }}
+          path: .toolchain/LuaDevTemplate
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install watchface tooling dependencies
+        shell: pwsh
+        run: python -m pip install -r .toolchain/LuaDevTemplate/requirements.txt
+
+      - name: Overlay VelaSU bootstrap sources
+        shell: pwsh
+        run: |
+          $dst = ".toolchain\LuaDevTemplate\watchface\fprj\app"
+          if (Test-Path $dst) {
+            Remove-Item -Recurse -Force "$dst\*"
+          } else {
+            New-Item -ItemType Directory -Path $dst -Force | Out-Null
+          }
+          Copy-Item -Recurse -Force "bootstrap\watchface\app\*" $dst
+          Get-ChildItem "artifacts\native" -Filter "*.elf" -Recurse | ForEach-Object {
+            Copy-Item -Force $_.FullName "$dst\lua\$($_.Name)"
+          }
+
+      - name: Build watchface
+        shell: pwsh
+        run: |
+          $id = [Int64]::Parse($env:FACE_ID)
+          if ($id -lt 1 -or $id -gt [Int32]::MaxValue) {
+            throw "FACE_ID must be within 1..2147483647"
+          }
+          if (-not $env:FACE_NAME.EndsWith(".face")) {
+            throw "FACE_NAME must end with .face"
+          }
+          & ".\.toolchain\LuaDevTemplate\scripts\build_face.ps1" -FaceName $env:FACE_NAME -FaceId $env:FACE_ID
+
+      - name: Collect artifacts
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path "artifacts\watchface" -Force | Out-Null
+          Copy-Item ".toolchain\LuaDevTemplate\bin\$env:FACE_NAME" "artifacts\watchface\$env:FACE_NAME" -Force
+          $resource = ".toolchain\LuaDevTemplate\watchface\data\resource.bin"
+          if (Test-Path $resource) {
+            Copy-Item $resource "artifacts\watchface\resource.bin" -Force
+          }
+          Get-ChildItem "artifacts\native" -Filter "*.elf" -Recurse | ForEach-Object {
+            Copy-Item $_.FullName "artifacts\watchface\$($_.Name)" -Force
+          }
+          Get-ChildItem "artifacts\watchface" | Format-Table Name,Length
+
+      - name: Upload Lua watchface artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: VelaSU-Lua-Watchface-${{ github.sha }}
+          path: artifacts/watchface/*
+          if-no-files-found: error
+          retention-days: 30

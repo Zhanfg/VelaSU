@@ -1,0 +1,10 @@
+<script>
+  export default {
+    onCreate() {
+      console.log('VelaSU Manager created')
+    },
+    onError(err) {
+      console.log(`VelaSU Manager error: ${err.message}`)
+    }
+  }
+</script>

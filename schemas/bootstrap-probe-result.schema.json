@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/Zhanfg/VelaSU/schemas/bootstrap-probe-result.schema.json",
+  "title": "VelaSU Bootstrap Probe Result",
+  "type": "object",
+  "required": [
+    "protocol",
+    "firmware",
+    "native_loaded",
+    "native_format",
+    "manager_bridge",
+    "live_bridge",
+    "capabilities"
+  ],
+  "properties": {
+    "protocol": { "const": 1 },
+    "firmware": { "type": "string" },
+    "native_loaded": { "type": "boolean" },
+    "native_format": { "enum": ["", "ET_DYN", "ET_REL"] },
+    "error": { "type": "string" },
+    "manager_bridge": { "type": "boolean" },
+    "live_bridge": { "type": "boolean" },
+    "core_target": { "type": "string" },
+    "capabilities": {
+      "type": "object",
+      "properties": {
+        "elf.module_loader": { "type": "boolean" },
+        "proc.modules": { "type": "boolean" },
+        "fs.mount": { "type": "boolean" },
+        "fs.unionfs": { "type": "boolean" },
+        "fs.tmpfs": { "type": "boolean" },
+        "sensor.uorb": { "type": "boolean" }
+      },
+      "additionalProperties": { "type": "boolean" }
+    }
+  },
+  "additionalProperties": true
+}
