@@ -19,10 +19,12 @@ on:
       - dev/**
     paths:
       - "bootstrap/watchface/**"
+      - "native/probe/**"
       - ".github/workflows/build-lua-watchface.yml"
   pull_request:
     paths:
       - "bootstrap/watchface/**"
+      - "native/probe/**"
       - ".github/workflows/build-lua-watchface.yml"
 
 permissions:
@@ -38,13 +40,43 @@ env:
   FACE_NAME: ${{ github.event_name == 'workflow_dispatch' && inputs.face_name || 'VelaSU-Bootstrap.face' }}
 
 jobs:
+  native-probe:
+    name: Build native probe
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout VelaSU
+        uses: actions/checkout@v4
+
+      - name: Install ARM GNU toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-arm-none-eabi binutils-arm-none-eabi
+
+      - name: Build both module formats
+        run: bash native/probe/build.sh
+
+      - name: Upload native probe payload
+        uses: actions/upload-artifact@v4
+        with:
+          name: VelaSU-Native-Probe-${{ github.sha }}
+          path: build/native-probe/velasu_probe_*.elf
+          if-no-files-found: error
+          retention-days: 30
+
   build:
     name: Build FACE
+    needs: native-probe
     runs-on: windows-latest
 
     steps:
       - name: Checkout VelaSU
         uses: actions/checkout@v4
+
+      - name: Download native probe payload
+        uses: actions/download-artifact@v4
+        with:
+          name: VelaSU-Native-Probe-${{ github.sha }}
+          path: artifacts/native-probe
 
       - name: Checkout pinned Lua watchface toolchain
         uses: actions/checkout@v4
@@ -72,6 +104,8 @@ jobs:
             New-Item -ItemType Directory -Path $dst -Force | Out-Null
           }
           Copy-Item -Recurse -Force "bootstrap\watchface\app\*" $dst
+          Copy-Item -Force "artifacts\native-probe\velasu_probe_dyn.elf" "$dst\lua\velasu_probe_dyn.elf"
+          Copy-Item -Force "artifacts\native-probe\velasu_probe_rel.elf" "$dst\lua\velasu_probe_rel.elf"
 
       - name: Build watchface
         shell: pwsh
@@ -94,6 +128,7 @@ jobs:
           if (Test-Path $resource) {
             Copy-Item $resource "artifacts\watchface\resource.bin" -Force
           }
+          Copy-Item "artifacts\native-probe\*.elf" "artifacts\watchface\" -Force
           Get-ChildItem "artifacts\watchface" | Format-Table Name,Length
 
       - name: Upload Lua watchface artifact

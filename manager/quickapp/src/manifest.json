@@ -1,12 +1,14 @@
 {
   "package": "io.github.zhanfg.velasu.manager",
   "name": "VelaSU",
-  "versionName": "0.0.1",
-  "versionCode": 1,
+  "versionName": "0.0.2",
+  "versionCode": 2,
   "icon": "/common/logo.png",
   "minPlatformVersion": 1200,
   "deviceTypeList": ["watch"],
-  "features": [],
+  "features": [
+    { "name": "system.file" }
+  ],
   "config": {
     "logLevel": "debug",
     "designWidth": 336,

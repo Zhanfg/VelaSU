@@ -1,8 +1,14 @@
 # VelaSU Lua Bootstrap Watchface
 
-This is the source overlay used by `.github/workflows/build-lua-watchface.yml`.
+The bootstrap is the temporary runtime activation surface.
 
-The CI workflow pins `FangAiden/LuaDevTemplate` to commit
-`0eb8346ce0c9c11f2316c6b154ed91fd4a0d419d`, overlays this directory's `app/` tree, and builds a `.face` artifact on a Windows runner.
+Current behavior:
+- locates the VelaSU Manager sandbox by a marker created by the Manager;
+- copies a minimal native probe ELF into `/data`;
+- tries ET_DYN first and ET_REL as a fallback;
+- verifies the module with `lsmod`;
+- runs read-only capability checks;
+- returns a compact JSON result to the Manager sandbox.
 
-The current bootstrap is UI-only and performs no native loading or persistent system modification.
+It does **not** modify firmware, bootloader, OTA/recovery, or Bluetooth
+initialization, and the loaded module disappears after reboot.

@@ -1,12 +1,32 @@
 <template>
   <div class="page">
     <text class="brand">VelaSU</text>
-    <text class="subtitle">Manager bootstrap</text>
+    <text class="subtitle">Runtime bootstrap</text>
+
     <div class="card">
-      <text class="label">CORE</text>
-      <text class="value">NOT ACTIVATED</text>
+      <text class="label">NATIVE CORE</text>
+      <text class="value">{{ coreState }}</text>
+      <text class="small">{{ nativeFormat }}</text>
     </div>
-    <text class="hint">Safe build: no privileged operation is enabled.</text>
+
+    <div class="row">
+      <text class="key">Firmware</text>
+      <text class="val">{{ firmware }}</text>
+    </div>
+    <div class="row">
+      <text class="key">Bridge</text>
+      <text class="val">{{ bridgeState }}</text>
+    </div>
+    <div class="row">
+      <text class="key">UnionFS</text>
+      <text class="val">{{ unionfsState }}</text>
+    </div>
+    <div class="row">
+      <text class="key">uORB</text>
+      <text class="val">{{ uorbState }}</text>
+    </div>
+
+    <text class="hint">{{ hint }}</text>
   </div>
 </template>
 
@@ -16,24 +36,24 @@
     flex-direction: column;
     align-items: center;
     background-color: #080c12;
-    padding-top: 54px;
-    padding-left: 22px;
-    padding-right: 22px;
+    padding-top: 34px;
+    padding-left: 20px;
+    padding-right: 20px;
   }
   .brand {
     color: #5cffb9;
-    font-size: 42px;
+    font-size: 38px;
     font-weight: bold;
   }
   .subtitle {
     color: #8391a5;
-    font-size: 20px;
-    margin-top: 4px;
-    margin-bottom: 34px;
+    font-size: 18px;
+    margin-top: 2px;
+    margin-bottom: 20px;
   }
   .card {
-    width: 292px;
-    height: 112px;
+    width: 296px;
+    height: 98px;
     border-width: 2px;
     border-color: #263140;
     border-radius: 18px;
@@ -41,25 +61,109 @@
     justify-content: center;
     align-items: center;
     background-color: #0d141e;
+    margin-bottom: 16px;
   }
   .label {
     color: #8391a5;
-    font-size: 17px;
+    font-size: 15px;
   }
   .value {
     color: #ffffff;
-    font-size: 24px;
-    margin-top: 7px;
+    font-size: 23px;
+    margin-top: 4px;
+  }
+  .small {
+    color: #5cffb9;
+    font-size: 14px;
+    margin-top: 2px;
+  }
+  .row {
+    width: 292px;
+    height: 34px;
+    flex-direction: row;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .key {
+    color: #8391a5;
+    font-size: 16px;
+  }
+  .val {
+    color: #e8eef5;
+    font-size: 16px;
   }
   .hint {
-    width: 286px;
+    width: 292px;
     color: #607086;
-    font-size: 17px;
+    font-size: 15px;
     text-align: center;
-    margin-top: 28px;
+    margin-top: 15px;
   }
 </style>
 
 <script>
-  export default {}
+  import file from '@system.file'
+
+  const BASE = 'internal://files/'
+  const MARKER = BASE + 'velasu_manager.marker'
+  const RESULT = BASE + 'velasu_probe.json'
+
+  export default {
+    private: {
+      coreState: 'NOT ACTIVATED',
+      nativeFormat: '',
+      firmware: '-',
+      bridgeState: 'PREPARED',
+      unionfsState: '-',
+      uorbState: '-',
+      hint: 'Open the VelaSU Bootstrap watchface and tap ACTIVATE.'
+    },
+
+    onInit() {
+      this.prepareBridge()
+      this.refreshProbe()
+      this._timer = setInterval(() => this.refreshProbe(), 1000)
+    },
+
+    onDestroy() {
+      if (this._timer) clearInterval(this._timer)
+    },
+
+    prepareBridge() {
+      file.writeText({
+        uri: MARKER,
+        text: 'velasu-manager-v1',
+        success: () => {
+          this.bridgeState = 'READY'
+        },
+        fail: () => {
+          this.bridgeState = 'ERROR'
+        }
+      })
+    },
+
+    refreshProbe() {
+      file.readText({
+        uri: RESULT,
+        success: (data) => {
+          try {
+            const r = JSON.parse((data && data.text) || '{}')
+            this.firmware = r.firmware || 'unknown'
+            this.bridgeState = r.manager_bridge ? 'ONLINE' : 'ERROR'
+            this.coreState = r.native_loaded ? 'ONLINE' : 'LOAD FAILED'
+            this.nativeFormat = r.native_format || ''
+            const c = r.capabilities || {}
+            this.unionfsState = c['fs.unionfs'] ? 'YES' : 'NO'
+            this.uorbState = c['sensor.uorb'] ? 'YES' : 'NO'
+            this.hint = r.native_loaded
+              ? 'Runtime native loading verified. Reboot still clears the module.'
+              : (r.error || 'Probe result received.')
+          } catch (e) {
+            this.hint = 'Probe result parse error.'
+          }
+        },
+        fail: () => {}
+      })
+    }
+  }
 </script>
